@@ -1,0 +1,37 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing and coverage
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Environment and sensitive data
+.env
+*.env
+cookies.txt
+cookies*.txt
+
+# Ingestion local cache / scratch
+inbox/takeout/
+inbox/cookies/
+logs/
+*.log
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store

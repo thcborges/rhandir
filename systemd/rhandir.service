@@ -1,0 +1,20 @@
+[Unit]
+Description=Rhandir - Daemon de Ingestão Leve para Segundo Cérebro Obsidian
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=%I
+WorkingDirectory=/home/thcborges/repos/rhandir
+EnvironmentFile=/home/thcborges/repos/rhandir/.env
+ExecStart=/home/thcborges/.local/bin/uv run rhandir run
+Restart=on-failure
+RestartSec=10
+MemoryMax=150M
+CPUQuota=50%
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

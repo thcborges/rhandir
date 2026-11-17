@@ -1,0 +1,113 @@
+name: CI - Quality, Security & Governance Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Code Style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Check code formatting (Ruff)
+        run: uv run ruff format --check .
+
+      - name: Run linter and static analysis (Ruff)
+        run: uv run ruff check .
+
+  security:
+    name: DevSecOps & Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Audit third-party dependencies for known CVEs
+        run: |
+          uv export --no-emit-project --format requirements-txt | uvx pip-audit -r /dev/stdin
+
+  test:
+    name: Automated Tests & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Run automated test suite with coverage
+        run: |
+          uv run pytest --cov=rhandir --cov-report=term-missing --cov-report=xml --cov-report=html
+
+      - name: Upload coverage HTML artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-coverage-report
+          path: htmlcov/
+          retention-days: 14
+
+  quality-gate:
+    name: Governance Quality Gate
+    runs-on: ubuntu-latest
+    needs: [lint, security, test]
+    if: always()
+    steps:
+      - name: Validate all upstream jobs succeeded
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.security.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ]; then
+            echo "❌ CI Quality Gate FAILED. One or more upstream checks did not pass."
+            echo "  - lint: ${{ needs.lint.result }}"
+            echo "  - security: ${{ needs.security.result }}"
+            echo "  - test: ${{ needs.test.result }}"
+            exit 1
+          fi
+          echo "✅ All CI Quality and Security Gates PASSED successfully."
