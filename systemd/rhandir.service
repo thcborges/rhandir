@@ -1,13 +1,13 @@
 [Unit]
 Description=Rhandir - Daemon de Ingestão Leve para Segundo Cérebro Obsidian
-After=network.target postgresql.service
-Wants=postgresql.service
+After=network.target docker.service
+Wants=docker.service
 
 [Service]
 Type=simple
 User=%I
-WorkingDirectory=/home/thcborges/repos/rhandir
-EnvironmentFile=/home/thcborges/repos/rhandir/.env
+WorkingDirectory=/home/thcborges/prod/rhandir
+EnvironmentFile=/home/thcborges/prod/rhandir/.env
 ExecStart=/home/thcborges/.local/bin/uv run rhandir run
 Restart=on-failure
 RestartSec=10
