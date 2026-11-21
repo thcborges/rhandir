@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     )
     telegram_allowed_chat_ids: list[int] = Field(
         default_factory=list,
-        description="Optional list of authorized Telegram chat IDs. If empty, all chats are allowed.",
+        description="Authorized Telegram chat IDs. If empty, all chats are allowed.",
     )
     log_level: str = Field(
         default="INFO",
