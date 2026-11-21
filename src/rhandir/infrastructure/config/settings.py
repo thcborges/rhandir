@@ -23,6 +23,10 @@ class Settings(BaseSettings):
         default=Path("inbox/raw_machine"),
         description="Target destination folder in Obsidian vault for raw markdown notes.",
     )
+    rclone_vault_remote: str = Field(
+        default="gdrive:Obsidian",
+        description="Remote Google Drive path configured via rclone for Obsidian vault sync.",
+    )
     takeout_inbox_dir: Path = Field(
         default=Path("inbox/takeout"),
         description="Folder monitored for Google Takeout JSON/HTML history files.",

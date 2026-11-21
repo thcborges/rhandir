@@ -65,3 +65,17 @@ def test_cli_sync_youtube_command() -> None:
         assert result.exit_code == 0
         assert "Sincronização concluída com sucesso" in result.output
         assert "total_discovered=5" in result.output
+
+
+def test_cli_sync_vault_command() -> None:
+    # Given
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+
+        # When
+        result = runner.invoke(cli, ["sync", "vault", "--direction", "pull"])
+
+        # Then
+        assert result.exit_code == 0
+        assert "Sincronização do Obsidian Vault concluída" in result.output
+        mock_run.assert_called_once()
