@@ -51,6 +51,14 @@ class Settings(BaseSettings):
         default=15,
         description="Duration to pause ingestion if YouTube IP block or HTTP 429 is encountered.",
     )
+    telegram_bot_token: str | None = Field(
+        default=None,
+        description="Telegram Bot API Token to listen for incoming video messages.",
+    )
+    telegram_allowed_chat_ids: list[int] = Field(
+        default_factory=list,
+        description="Authorized Telegram chat IDs. If empty, all chats are allowed.",
+    )
     log_level: str = Field(
         default="INFO",
         description="Structured logging level (DEBUG, INFO, WARNING, ERROR).",
