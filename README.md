@@ -12,7 +12,8 @@ Projetado sob os princípios de **Clean Architecture**, **TDD/BDD**, **Clean Cod
 
 - **Python:** `>= 3.12`
 - **Gerenciador de Pacotes:** `uv` (`>= 0.13`)
-- **Banco de Dados:** PostgreSQL (modo WAL com tabela leve e índices)
+- **Docker & Docker Compose:** Para execução do container PostgreSQL 16
+- **Rclone:** Para sincronização do cofre Obsidian (`data/vault`) com o Google Drive
 - **Obsidian Vault:** Pasta de entrada configurada (`OBSIDIAN_RAW_DIR`)
 - **Telegram Bot (Opcional):** Token do bot criado via `@BotFather`
 
@@ -36,11 +37,30 @@ cp .env.example .env
 ```
 
 Parâmetros principais no `.env`:
-- `DATABASE_URL`: String de conexão com o PostgreSQL (`postgresql://user:pass@localhost:5432/rhandir`).
-- `OBSIDIAN_RAW_DIR`: Diretório absoluto da "Pasta Máquina" no Obsidian (ex: `/home/user/obsidian/mindon/00_Inbox/Raw_Machine`).
-- `TAKEOUT_INBOX_DIR`: Diretório monitorado onde arquivos `watch-history.json` do Google Takeout são depositados (`inbox/takeout`).
+- `DATABASE_URL`: String de conexão com o PostgreSQL (`postgresql://postgres:postgres@localhost:5432/rhandir`).
+- `OBSIDIAN_RAW_DIR`: Diretório absoluto da "Pasta Máquina" no Obsidian (ex: `/home/user/prod/rhandir/data/vault/00_Inbox/Raw_Machine`).
+- `RCLONE_VAULT_REMOTE`: Caminho remoto configurado no rclone para o cofre no Google Drive (ex: `gdrive:Obsidian`).
+- `TAKEOUT_INBOX_DIR`: Diretório monitorado onde arquivos de histórico do Takeout são depositados (`data/takeout`).
 - `TELEGRAM_BOT_TOKEN`: Token do bot do Telegram (se preenchido, o daemon escutará mensagens ativamente).
 - `TELEGRAM_ALLOWED_CHAT_IDS`: Lista em formato JSON com chat IDs autorizados (ex: `[123456789]`). Se vazio, aceita qualquer chat.
+
+### 3. Iniciar o Banco de Dados PostgreSQL (Docker)
+Inicie o container PostgreSQL configurado com persistência no diretório `data/br`:
+```bash
+docker compose up -d
+
+# Validar a conexão e integridade da base
+uv run rhandir status
+```
+
+### 4. Sincronizar o Obsidian Vault com o Google Drive (Rclone)
+```bash
+# Baixar o cofre do Google Drive para o diretório local (data/vault):
+uv run rhandir sync vault --direction pull
+
+# Ou enviar alterações locais para a nuvem:
+uv run rhandir sync vault --direction push
+```
 
 ---
 
@@ -64,10 +84,13 @@ O comando `rhandir` está configurado diretamente no ambiente virtual via `uv`:
 # 1. Consultar a saúde e contagem de vídeos por status no PostgreSQL
 uv run rhandir status
 
-# 2. Executar um ciclo manual de sincronização sob demanda (Takeout)
+# 2. Sincronizar o Obsidian Vault com o Google Drive via rclone
+uv run rhandir sync vault --direction pull   # ou --direction push
+
+# 3. Executar um ciclo manual de sincronização sob demanda (Takeout)
 uv run rhandir sync youtube
 
-# 3. Executar o daemon contínuo em primeiro plano (foreground: Takeout polling + Telegram Bot)
+# 4. Executar o daemon contínuo em primeiro plano (foreground: Takeout polling + Telegram Bot)
 uv run rhandir run
 ```
 
