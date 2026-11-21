@@ -18,6 +18,33 @@ from rhandir.core.ports.repositories import IIngestionRepository
 logger = logging.getLogger(__name__)
 
 
+def _format_quote(text: str) -> str:
+    """Format original text as a clean markdown blockquote."""
+    lines = text.strip().splitlines()
+    return "\n".join(f"> {line}" for line in lines) if lines else "> (mensagem vazia)"
+
+
+def _diagnose_error_cause(error_message: str | None) -> str:
+    """Analyze error message and provide clear explanation of the root cause."""
+    if not error_message:
+        return "Causa desconhecida ou não especificada."
+    err_lower = error_message.lower()
+    if any(k in err_lower for k in ("429", "rate limit", "ipblocked", "requestblocked")):
+        return (
+            "Limite de requisições excedido ou bloqueio temporário de IP imposto pelo YouTube "
+            "(HTTP 429 / Captcha). O Circuit Breaker foi ativado temporariamente para proteção."
+        )
+    if any(k in err_lower for k in ("permission denied", "vaultwriteerror", "no such file")):
+        return (
+            "Falha de permissão ou caminho inacessível ao tentar gravar a nota no Obsidian Vault."
+        )
+    if any(k in err_lower for k in ("database", "connection", "asyncpg", "postgres")):
+        return "Falha de conexão ou persistência no banco de dados PostgreSQL."
+    if any(k in err_lower for k in ("timeout", "timed out")):
+        return "Tempo limite de comunicação esgotado durante a requisição de rede."
+    return f"Falha operacional durante o processamento: {error_message}"
+
+
 class TelegramListener(IMessageListener):
     """Listens for Telegram messages containing YouTube links and triggers ingestion."""
 
@@ -57,8 +84,10 @@ class TelegramListener(IMessageListener):
         ).strip()
 
         if raw_text in ("/start", "/help"):
+            quote = _format_quote(raw_text)
             welcome = (
-                "🤖 **Rhandir — Coletor Obsidian**\n\n"
+                f"🤖 **Rhandir — Coletor Obsidian**\n\n"
+                f"{quote}\n\n"
                 "Envie um link de vídeo do YouTube (normal, shorts ou live) "
                 "para que eu extraia e salve a transcrição na Pasta Máquina do Obsidian."
             )
@@ -67,9 +96,12 @@ class TelegramListener(IMessageListener):
 
         video_id = VideoId.extract_from_text(raw_text)
         if not video_id:
+            quote = _format_quote(raw_text)
             await message.reply(
-                "ℹ️ Nenhum link válido de vídeo do YouTube foi encontrado na mensagem. "
-                "Envie uma URL do YouTube para processar."
+                "📥 **Confirmação de Recebimento**\n\n"
+                f"{quote}\n\n"
+                "⚠️ Nenhum link válido de vídeo do YouTube foi encontrado na mensagem citada. "
+                "Por favor, envie uma mensagem contendo uma URL do YouTube para processar."
             )
             return
 
@@ -84,24 +116,69 @@ class TelegramListener(IMessageListener):
         )
 
         await self._repository.save_discovered(video)
-        await message.reply(f"⏳ Processando transcrição para o vídeo `{video_id.value}`...")
 
-        record = await self._video_use_case.execute(video)
+        # 1. Immediate acknowledgment citing received message and link
+        quote = _format_quote(raw_text)
+        ack_message = (
+            "📥 **Confirmação de Recebimento**\n\n"
+            f"{quote}\n\n"
+            f"🔗 **Link recebido:** {video.url}\n"
+            "⏳ Iniciando extração e processamento da transcrição..."
+        )
+        await message.reply(ack_message)
 
-        if record.status == IngestionStatus.COMPLETED:
-            await message.reply(
-                f"✅ Transcrição salva com sucesso no vault!\n\n"
-                f"📄 **Arquivo:** `{record.vault_path}`"
+        # 2. Process video and send detailed final status message
+        try:
+            record = await self._video_use_case.execute(video)
+
+            if record.status == IngestionStatus.COMPLETED:
+                final_reply = (
+                    "📊 **Status do Processamento: Concluído com Sucesso** ✅\n\n"
+                    f"• **ID do Vídeo:** `{video.video_id.value}`\n"
+                    f"• **Link:** {video.url}\n"
+                    f"• **Arquivo no Vault:** `{record.vault_path}`"
+                )
+                await message.reply(final_reply)
+
+            elif record.status == IngestionStatus.NO_TRANSCRIPT:
+                final_reply = (
+                    "📊 **Status do Processamento: Sem Transcrição** ⚠️\n\n"
+                    f"• **ID do Vídeo:** `{video.video_id.value}`\n"
+                    f"• **Link:** {video.url}\n"
+                    f"• **Nota criada no Vault:** `{record.vault_path}`\n"
+                    "• **Detalhe:** Este vídeo não possui legendas disponíveis no YouTube. "
+                    "Uma nota informativa de aviso foi salva no Vault para registro."
+                )
+                await message.reply(final_reply)
+
+            else:
+                cause = _diagnose_error_cause(record.error_message)
+                final_reply = (
+                    "📊 **Status do Processamento: Falha** ❌\n\n"
+                    f"• **ID do Vídeo:** `{video.video_id.value}`\n"
+                    f"• **Link:** {video.url}\n"
+                    f"• **Erro:** `{record.error_message}`\n"
+                    f"• **Causa do erro:** {cause}\n"
+                    f"• **Tentativas:** {record.retry_count}"
+                )
+                await message.reply(final_reply)
+
+        except Exception as exc:
+            logger.error(
+                "Unexpected error processing video %s: %s",
+                video.video_id.value,
+                exc,
+                exc_info=True,
             )
-        elif record.status == IngestionStatus.NO_TRANSCRIPT:
-            await message.reply(
-                f"⚠️ Vídeo `{video_id.value}` não possui legendas disponíveis no YouTube.\n\n"
-                f"📄 Nota criada com aviso no vault: `{record.vault_path}`"
+            cause = _diagnose_error_cause(str(exc))
+            final_reply = (
+                "📊 **Status do Processamento: Falha Inesperada** ❌\n\n"
+                f"• **ID do Vídeo:** `{video.video_id.value}`\n"
+                f"• **Link:** {video.url}\n"
+                f"• **Erro:** `{exc}`\n"
+                f"• **Causa do erro:** {cause}"
             )
-        else:
-            await message.reply(
-                f"❌ Falha ao processar vídeo `{video_id.value}`:\n`{record.error_message}`"
-            )
+            await message.reply(final_reply)
 
     async def start(self) -> None:
         """Start the aiogram polling loop as a background task."""

@@ -3,7 +3,26 @@
 BDD Specifications:
 - Given an authorized Telegram message containing a YouTube URL,
   When processed by TelegramListener,
-  Then it registers the video, invokes IngestYouTubeVideoUseCase, and replies with success.
+  Then:
+    1. It immediately replies with an acknowledgment quoting the message and stating the link.
+    2. At the end of processing, it replies with detailed completion status including vault path.
+
+- Given a video that yields NO_TRANSCRIPT status,
+  When processed by TelegramListener,
+  Then:
+    1. It acknowledges receipt quoting the message and stating the link.
+    2. At the end, it replies with detailed status explaining that no subtitles are available.
+
+- Given a video that yields FAILED status,
+  When processed by TelegramListener,
+  Then:
+    1. It acknowledges receipt quoting the message and stating the link.
+    2. At the end, it replies with detailed failure status, the error message, and what caused it.
+
+- Given an unexpected exception during execution,
+  When processed by TelegramListener,
+  Then:
+    1. It replies with detailed error information explaining what failed and the root cause.
 
 - Given a message from an unauthorized chat ID,
   When processed by TelegramListener,
@@ -11,19 +30,11 @@ BDD Specifications:
 
 - Given a message without any YouTube link,
   When processed by TelegramListener,
-  Then it informs the user and does not invoke the use case.
+  Then it replies quoting the message and informing that no valid link was found.
 
-- Given a video that yields NO_TRANSCRIPT status,
+- Given /start or /help command,
   When processed by TelegramListener,
-  Then it replies with a warning and informs the vault path.
-
-- Given a video that yields FAILED status,
-  When processed by TelegramListener,
-  Then it replies reporting the failure reason.
-
-- Given TelegramListener lifecycle,
-  When start and stop are invoked,
-  Then polling and bot session are managed gracefully.
+  Then it sends welcome instructions quoting the command.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -49,14 +60,14 @@ def mock_repository() -> AsyncMock:
 def mock_message() -> MagicMock:
     msg = MagicMock()
     msg.chat = MagicMock(id=123456)
-    msg.text = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    msg.text = "Olha esse vídeo: https://www.youtube.com/watch?v=dQw4w9WgXcQ recomendo!"
     msg.caption = None
     msg.reply = AsyncMock()
     return msg
 
 
 @pytest.mark.asyncio
-async def test_given_authorized_youtube_link_when_processing_then_ingests_and_replies_success(
+async def test_given_authorized_youtube_link_when_processing_then_acknowledges_and_reports_details(
     mock_video_use_case: AsyncMock,
     mock_repository: AsyncMock,
     mock_message: MagicMock,
@@ -86,10 +97,126 @@ async def test_given_authorized_youtube_link_when_processing_then_ingests_and_re
     # Then
     mock_repository.save_discovered.assert_called_once()
     mock_video_use_case.execute.assert_called_once()
-    assert mock_message.reply.call_count >= 1
-    last_reply = mock_message.reply.call_args[0][0]
-    assert "Transcrição salva com sucesso" in last_reply
-    assert "/vault/note.md" in last_reply
+
+    # Must send at least 2 messages: acknowledgment, then final status
+    assert mock_message.reply.call_count == 2
+
+    # 1. First message: Acknowledgment citing the received message and informing the link
+    first_reply = mock_message.reply.call_args_list[0][0][0]
+    assert "Confirmação de Recebimento" in first_reply
+    assert mock_message.text in first_reply  # quotes original message
+    assert "https://www.youtube.com/watch?v=dQw4w9WgXcQ" in first_reply
+
+    # 2. Second message: Detailed final status
+    final_reply = mock_message.reply.call_args_list[1][0][0]
+    assert "Status do Processamento: Concluído com Sucesso" in final_reply
+    assert "dQw4w9WgXcQ" in final_reply
+    assert "/vault/note.md" in final_reply
+
+
+@pytest.mark.asyncio
+async def test_given_video_without_transcript_when_processing_then_acknowledges_and_reports_details(
+    mock_video_use_case: AsyncMock,
+    mock_repository: AsyncMock,
+    mock_message: MagicMock,
+) -> None:
+    # Given
+    listener = TelegramListener(
+        token="FAKE_TOKEN",
+        video_use_case=mock_video_use_case,
+        repository=mock_repository,
+        allowed_chat_ids=[123456],
+    )
+    video = Video(
+        video_id=VideoId("dQw4w9WgXcQ"),
+        title="Instrumental",
+        channel="Channel",
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        watched_at=None,
+        discovered_at=MagicMock(),
+    )
+    no_sub_record = IngestionRecord.create_pending(video)
+    no_sub_record.mark_no_transcript(vault_path="/vault/no_sub.md")
+    mock_video_use_case.execute.return_value = no_sub_record
+
+    # When
+    await listener.handle_message(mock_message)
+
+    # Then
+    assert mock_message.reply.call_count == 2
+    first_reply = mock_message.reply.call_args_list[0][0][0]
+    assert "Confirmação de Recebimento" in first_reply
+    assert "https://www.youtube.com/watch?v=dQw4w9WgXcQ" in first_reply
+
+    final_reply = mock_message.reply.call_args_list[1][0][0]
+    assert "Status do Processamento: Sem Transcrição" in final_reply
+    assert "/vault/no_sub.md" in final_reply
+    assert "não possui legendas" in final_reply
+
+
+@pytest.mark.asyncio
+async def test_given_video_failure_when_processing_then_acknowledges_and_reports_cause(
+    mock_video_use_case: AsyncMock,
+    mock_repository: AsyncMock,
+    mock_message: MagicMock,
+) -> None:
+    # Given
+    listener = TelegramListener(
+        token="FAKE_TOKEN",
+        video_use_case=mock_video_use_case,
+        repository=mock_repository,
+        allowed_chat_ids=[123456],
+    )
+    video = Video(
+        video_id=VideoId("dQw4w9WgXcQ"),
+        title="Test Video",
+        channel="Channel",
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        watched_at=None,
+        discovered_at=MagicMock(),
+    )
+    failed_record = IngestionRecord.create_pending(video)
+    failed_record.mark_failed(error_message="HTTP 429: Too Many Requests from YouTube")
+    mock_video_use_case.execute.return_value = failed_record
+
+    # When
+    await listener.handle_message(mock_message)
+
+    # Then
+    assert mock_message.reply.call_count == 2
+    first_reply = mock_message.reply.call_args_list[0][0][0]
+    assert "Confirmação de Recebimento" in first_reply
+
+    final_reply = mock_message.reply.call_args_list[1][0][0]
+    assert "Status do Processamento: Falha" in final_reply
+    assert "HTTP 429: Too Many Requests from YouTube" in final_reply
+    assert "Causa do erro:" in final_reply
+
+
+@pytest.mark.asyncio
+async def test_given_unexpected_exception_when_processing_then_reports_error_and_cause(
+    mock_video_use_case: AsyncMock,
+    mock_repository: AsyncMock,
+    mock_message: MagicMock,
+) -> None:
+    # Given: use case raises an unexpected error
+    listener = TelegramListener(
+        token="FAKE_TOKEN",
+        video_use_case=mock_video_use_case,
+        repository=mock_repository,
+        allowed_chat_ids=[123456],
+    )
+    mock_video_use_case.execute.side_effect = RuntimeError("Database connection lost")
+
+    # When
+    await listener.handle_message(mock_message)
+
+    # Then
+    assert mock_message.reply.call_count == 2
+    final_reply = mock_message.reply.call_args_list[1][0][0]
+    assert "Status do Processamento: Falha Inesperada" in final_reply
+    assert "Database connection lost" in final_reply
+    assert "Causa do erro:" in final_reply
 
 
 @pytest.mark.asyncio
@@ -98,7 +225,7 @@ async def test_given_unauthorized_chat_when_processing_then_rejects(
     mock_repository: AsyncMock,
     mock_message: MagicMock,
 ) -> None:
-    # Given: allowed chats don't include message.chat.id (123456)
+    # Given
     listener = TelegramListener(
         token="FAKE_TOKEN",
         video_use_case=mock_video_use_case,
@@ -118,7 +245,7 @@ async def test_given_unauthorized_chat_when_processing_then_rejects(
 
 
 @pytest.mark.asyncio
-async def test_given_text_without_link_when_processing_then_prompts_user(
+async def test_given_text_without_link_when_processing_then_cites_and_prompts_user(
     mock_video_use_case: AsyncMock,
     mock_repository: AsyncMock,
     mock_message: MagicMock,
@@ -140,75 +267,8 @@ async def test_given_text_without_link_when_processing_then_prompts_user(
     mock_repository.save_discovered.assert_not_called()
     mock_message.reply.assert_called_once()
     reply_text = mock_message.reply.call_args[0][0]
+    assert "Olá bot, bom dia!" in reply_text
     assert "Nenhum link válido" in reply_text
-
-
-@pytest.mark.asyncio
-async def test_given_video_without_transcript_when_processing_then_informs_no_transcript(
-    mock_video_use_case: AsyncMock,
-    mock_repository: AsyncMock,
-    mock_message: MagicMock,
-) -> None:
-    # Given
-    listener = TelegramListener(
-        token="FAKE_TOKEN",
-        video_use_case=mock_video_use_case,
-        repository=mock_repository,
-        allowed_chat_ids=[123456],
-    )
-    video = Video(
-        video_id=VideoId("dQw4w9WgXcQ"),
-        title="Test Video",
-        channel="Channel",
-        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        watched_at=None,
-        discovered_at=MagicMock(),
-    )
-    no_sub_record = IngestionRecord.create_pending(video)
-    no_sub_record.mark_no_transcript(vault_path="/vault/no_sub.md")
-    mock_video_use_case.execute.return_value = no_sub_record
-
-    # When
-    await listener.handle_message(mock_message)
-
-    # Then
-    last_reply = mock_message.reply.call_args[0][0]
-    assert "não possui legendas disponíveis" in last_reply
-    assert "/vault/no_sub.md" in last_reply
-
-
-@pytest.mark.asyncio
-async def test_given_video_failure_when_processing_then_reports_error(
-    mock_video_use_case: AsyncMock,
-    mock_repository: AsyncMock,
-    mock_message: MagicMock,
-) -> None:
-    # Given
-    listener = TelegramListener(
-        token="FAKE_TOKEN",
-        video_use_case=mock_video_use_case,
-        repository=mock_repository,
-        allowed_chat_ids=[123456],
-    )
-    video = Video(
-        video_id=VideoId("dQw4w9WgXcQ"),
-        title="Test Video",
-        channel="Channel",
-        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        watched_at=None,
-        discovered_at=MagicMock(),
-    )
-    failed_record = IngestionRecord.create_pending(video)
-    failed_record.mark_failed(error_message="HTTP 429 Too Many Requests")
-    mock_video_use_case.execute.return_value = failed_record
-
-    # When
-    await listener.handle_message(mock_message)
-
-    # Then
-    last_reply = mock_message.reply.call_args[0][0]
-    assert "Falha ao processar vídeo" in last_reply
-    assert "HTTP 429 Too Many Requests" in last_reply
 
 
 @pytest.mark.asyncio
