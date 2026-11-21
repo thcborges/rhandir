@@ -39,9 +39,7 @@ async def test_given_daemon_controller_when_running_then_executes_cycle_and_stop
 
 
 @pytest.mark.asyncio
-async def test_given_daemon_with_message_listener_when_running_then_manages_listener_lifecycle() -> (
-    None
-):
+async def test_given_daemon_with_listener_when_running_then_manages_lifecycle() -> None:
     # Given
     mock_use_case = AsyncMock()
     mock_use_case.execute.return_value = IngestionSummaryDTO(

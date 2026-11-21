@@ -11,10 +11,12 @@ import typer
 from rhandir.application.services.circuit_breaker import CircuitBreaker
 from rhandir.application.use_cases.ingest_history import IngestYouTubeHistoryUseCase
 from rhandir.application.use_cases.ingest_video import IngestYouTubeVideoUseCase
+from rhandir.core.ports.listeners import IMessageListener
 from rhandir.infrastructure.config.settings import Settings
 from rhandir.infrastructure.db.client import close_db_pool, create_db_pool
 from rhandir.infrastructure.db.postgres_repository import PostgresIngestionRepository
 from rhandir.infrastructure.external.takeout_parser import TakeoutCollector
+from rhandir.infrastructure.external.telegram_listener import TelegramListener
 from rhandir.infrastructure.external.youtube_transcript import YouTubeTranscriptProvider
 from rhandir.infrastructure.filesystem.vault_writer import VaultWriter
 from rhandir.interfaces.controllers.daemon import DaemonController
@@ -39,6 +41,7 @@ class AppContainer(NamedTuple):
     repository: PostgresIngestionRepository
     history_use_case: IngestYouTubeHistoryUseCase
     daemon_controller: DaemonController
+    message_listener: IMessageListener | None = None
 
 
 def build_container(settings: Settings, pool: object) -> AppContainer:
@@ -67,8 +70,18 @@ def build_container(settings: Settings, pool: object) -> AppContainer:
         circuit_breaker=circuit_breaker,
     )
 
+    message_listener: IMessageListener | None = None
+    if settings.telegram_bot_token:
+        message_listener = TelegramListener(
+            token=settings.telegram_bot_token,
+            video_use_case=video_use_case,
+            repository=repository,
+            allowed_chat_ids=settings.telegram_allowed_chat_ids,
+        )
+
     daemon_controller = DaemonController(
         history_use_case=history_use_case,
+        message_listener=message_listener,
         poll_interval_seconds=settings.daemon_poll_interval_seconds,
     )
 
@@ -76,6 +89,7 @@ def build_container(settings: Settings, pool: object) -> AppContainer:
         repository=repository,
         history_use_case=history_use_case,
         daemon_controller=daemon_controller,
+        message_listener=message_listener,
     )
 
 

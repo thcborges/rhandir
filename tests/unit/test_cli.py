@@ -1,11 +1,13 @@
-"""Unit tests for Rhandir CLI commands."""
+"""Unit tests for Rhandir CLI commands and container wiring."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
 from rhandir.application.dtos.video_dto import IngestionSummaryDTO
-from rhandir.cli.app import cli
+from rhandir.cli.app import build_container, cli
+from rhandir.infrastructure.config.settings import Settings
+from rhandir.infrastructure.external.telegram_listener import TelegramListener
 
 runner = CliRunner()
 
@@ -79,3 +81,24 @@ def test_cli_sync_vault_command() -> None:
         assert result.exit_code == 0
         assert "Sincronização do Obsidian Vault concluída" in result.output
         mock_run.assert_called_once()
+
+
+def test_given_telegram_token_when_building_container_then_wires_listener() -> None:
+    settings = Settings(telegram_bot_token="FAKE_TOKEN:123456", telegram_allowed_chat_ids=[123])
+    mock_pool = MagicMock()
+
+    container = build_container(settings, mock_pool)
+
+    assert container.message_listener is not None
+    assert isinstance(container.message_listener, TelegramListener)
+    assert container.daemon_controller._message_listener is container.message_listener
+
+
+def test_given_no_telegram_token_when_building_container_then_listener_is_none() -> None:
+    settings = Settings(telegram_bot_token=None)
+    mock_pool = MagicMock()
+
+    container = build_container(settings, mock_pool)
+
+    assert container.message_listener is None
+    assert container.daemon_controller._message_listener is None
