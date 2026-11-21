@@ -49,7 +49,7 @@ def build_container(settings: Settings, pool: object) -> AppContainer:
     """Wire up clean architecture layers and dependencies (Composition Root)."""
     repository = PostgresIngestionRepository(pool=pool)  # type: ignore[arg-type]
     collector = TakeoutCollector(inbox_dir=settings.takeout_inbox_dir)
-    transcript_provider = YouTubeTranscriptProvider()
+    transcript_provider = YouTubeTranscriptProvider(cookies_file_path=settings.cookies_file_path)
     vault_writer = VaultWriter(output_dir=settings.obsidian_raw_dir)
 
     circuit_breaker = CircuitBreaker(

@@ -6,8 +6,11 @@ non-blocking event loop execution.
 """
 
 import asyncio
+import http.cookiejar
 from collections.abc import Sequence
+from pathlib import Path
 
+import requests
 from youtube_transcript_api import (
     IpBlocked,
     NoTranscriptFound,
@@ -34,9 +37,21 @@ class YouTubeTranscriptProvider(ITranscriptProvider):
         self,
         languages: Sequence[str] = ("pt", "pt-BR", "en"),
         api: YouTubeTranscriptApi | None = None,
+        cookies_file_path: Path | str | None = None,
     ) -> None:
         self._languages = tuple(languages)
-        self._api = api or YouTubeTranscriptApi()
+        self._cookies_file_path = Path(cookies_file_path) if cookies_file_path else None
+
+        if api is not None:
+            self._api = api
+        elif self._cookies_file_path and self._cookies_file_path.exists():
+            session = requests.Session()
+            cookie_jar = http.cookiejar.MozillaCookieJar(str(self._cookies_file_path))
+            cookie_jar.load(ignore_discard=True, ignore_expires=True)
+            session.cookies = cookie_jar
+            self._api = YouTubeTranscriptApi(http_client=session)
+        else:
+            self._api = YouTubeTranscriptApi()
 
     def _group_into_paragraphs(self, snippets: list[str]) -> list[str]:
         """Aggregate short transcript snippets into coherent paragraphs."""
