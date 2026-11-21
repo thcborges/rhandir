@@ -106,3 +106,21 @@ async def test_given_ip_blocked_when_fetching_then_raises_rate_limit_exceeded() 
         # When / Then
         with pytest.raises(RateLimitExceededError):
             await provider.get_transcript(video_id)
+
+
+def test_given_cookies_file_path_when_initializing_then_configures_cookiejar(
+    tmp_path,
+) -> None:
+    # Given
+    cookies_file = tmp_path / "cookies.txt"
+    content = (
+        "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\ttest_cookie\n"
+    )
+    cookies_file.write_text(content, encoding="utf-8")
+
+    # When
+    provider = YouTubeTranscriptProvider(cookies_file_path=cookies_file)
+
+    # Then
+    assert provider._cookies_file_path == cookies_file
+    assert provider._api is not None
