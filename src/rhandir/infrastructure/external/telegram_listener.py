@@ -13,6 +13,7 @@ from rhandir.core.domain.entities.video import Video
 from rhandir.core.domain.value_objects.status import IngestionStatus
 from rhandir.core.domain.value_objects.video_id import VideoId
 from rhandir.core.ports.listeners import IMessageListener
+from rhandir.core.ports.metadata import IVideoMetadataProvider
 from rhandir.core.ports.repositories import IIngestionRepository
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class TelegramListener(IMessageListener):
         token: str,
         video_use_case: IngestYouTubeVideoUseCase,
         repository: IIngestionRepository,
+        metadata_provider: IVideoMetadataProvider | None = None,
         allowed_chat_ids: list[int] | None = None,
         bot: Bot | None = None,
         dp: Dispatcher | None = None,
@@ -60,6 +62,7 @@ class TelegramListener(IMessageListener):
         self._token = token
         self._video_use_case = video_use_case
         self._repository = repository
+        self._metadata_provider = metadata_provider
         self._allowed_chat_ids = set(allowed_chat_ids or [])
         self._bot = bot
         self._dp = dp
@@ -106,10 +109,16 @@ class TelegramListener(IMessageListener):
             return
 
         logger.info("Received YouTube video from Telegram: %s", video_id.value)
+        if self._metadata_provider is not None:
+            title, channel = await self._metadata_provider.get_metadata(video_id)
+        else:
+            title = f"YouTube Video {video_id.value}"
+            channel = "Canal Desconhecido"
+
         video = Video(
             video_id=video_id,
-            title=f"YouTube Video {video_id.value}",
-            channel="Telegram Ingestion",
+            title=title,
+            channel=channel,
             url=video_id.to_url(),
             watched_at=None,
             discovered_at=datetime.now(UTC),
@@ -117,11 +126,13 @@ class TelegramListener(IMessageListener):
 
         await self._repository.save_discovered(video)
 
-        # 1. Immediate acknowledgment citing received message and link
+        # 1. Immediate acknowledgment citing received message, title, channel and link
         quote = _format_quote(raw_text)
         ack_message = (
             "📥 **Confirmação de Recebimento**\n\n"
             f"{quote}\n\n"
+            f"🎬 **Título:** {video.title}\n"
+            f"👤 **Canal:** {video.channel}\n"
             f"🔗 **Link recebido:** {video.url}\n"
             "⏳ Iniciando extração e processamento da transcrição..."
         )
@@ -134,6 +145,8 @@ class TelegramListener(IMessageListener):
             if record.status == IngestionStatus.COMPLETED:
                 final_reply = (
                     "📊 **Status do Processamento: Concluído com Sucesso** ✅\n\n"
+                    f"• **Título:** {video.title}\n"
+                    f"• **Canal:** {video.channel}\n"
                     f"• **ID do Vídeo:** `{video.video_id.value}`\n"
                     f"• **Link:** {video.url}\n"
                     f"• **Arquivo no Vault:** `{record.vault_path}`"
@@ -143,6 +156,8 @@ class TelegramListener(IMessageListener):
             elif record.status == IngestionStatus.NO_TRANSCRIPT:
                 final_reply = (
                     "📊 **Status do Processamento: Sem Transcrição** ⚠️\n\n"
+                    f"• **Título:** {video.title}\n"
+                    f"• **Canal:** {video.channel}\n"
                     f"• **ID do Vídeo:** `{video.video_id.value}`\n"
                     f"• **Link:** {video.url}\n"
                     f"• **Nota criada no Vault:** `{record.vault_path}`\n"
@@ -155,6 +170,8 @@ class TelegramListener(IMessageListener):
                 cause = _diagnose_error_cause(record.error_message)
                 final_reply = (
                     "📊 **Status do Processamento: Falha** ❌\n\n"
+                    f"• **Título:** {video.title}\n"
+                    f"• **Canal:** {video.channel}\n"
                     f"• **ID do Vídeo:** `{video.video_id.value}`\n"
                     f"• **Link:** {video.url}\n"
                     f"• **Erro:** `{record.error_message}`\n"
@@ -173,6 +190,8 @@ class TelegramListener(IMessageListener):
             cause = _diagnose_error_cause(str(exc))
             final_reply = (
                 "📊 **Status do Processamento: Falha Inesperada** ❌\n\n"
+                f"• **Título:** {video.title}\n"
+                f"• **Canal:** {video.channel}\n"
                 f"• **ID do Vídeo:** `{video.video_id.value}`\n"
                 f"• **Link:** {video.url}\n"
                 f"• **Erro:** `{exc}`\n"

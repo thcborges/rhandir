@@ -57,6 +57,13 @@ def mock_repository() -> AsyncMock:
 
 
 @pytest.fixture
+def mock_metadata_provider() -> AsyncMock:
+    provider = AsyncMock()
+    provider.get_metadata.return_value = ("Rick Astley - Never Gonna Give You Up", "Rick Astley")
+    return provider
+
+
+@pytest.fixture
 def mock_message() -> MagicMock:
     msg = MagicMock()
     msg.chat = MagicMock(id=123456)
@@ -334,3 +341,45 @@ async def test_given_empty_token_when_start_then_does_nothing(
     )
     await listener.start()
     assert listener._polling_task is None
+
+
+@pytest.mark.asyncio
+async def test_given_youtube_link_when_processing_then_fetches_real_metadata_for_vault_and_replies(
+    mock_video_use_case: AsyncMock,
+    mock_repository: AsyncMock,
+    mock_metadata_provider: AsyncMock,
+    mock_message: MagicMock,
+) -> None:
+    # Given
+    listener = TelegramListener(
+        token="FAKE_TOKEN",
+        video_use_case=mock_video_use_case,
+        repository=mock_repository,
+        metadata_provider=mock_metadata_provider,
+        allowed_chat_ids=[123456],
+    )
+    video = Video(
+        video_id=VideoId("dQw4w9WgXcQ"),
+        title="Rick Astley - Never Gonna Give You Up",
+        channel="Rick Astley",
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        watched_at=None,
+        discovered_at=MagicMock(),
+    )
+    completed_record = IngestionRecord.create_pending(video)
+    completed_record.mark_completed(vault_path="/vault/note.md")
+    mock_video_use_case.execute.return_value = completed_record
+
+    # When
+    await listener.handle_message(mock_message)
+
+    # Then
+    mock_metadata_provider.get_metadata.assert_called_once_with(VideoId("dQw4w9WgXcQ"))
+    saved_video = mock_repository.save_discovered.call_args[0][0]
+    assert saved_video.title == "Rick Astley - Never Gonna Give You Up"
+    assert saved_video.channel == "Rick Astley"
+    assert saved_video.url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    final_reply = mock_message.reply.call_args_list[1][0][0]
+    assert "Rick Astley - Never Gonna Give You Up" in final_reply
+    assert "Rick Astley" in final_reply

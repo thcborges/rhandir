@@ -17,6 +17,7 @@ from rhandir.infrastructure.db.client import close_db_pool, create_db_pool
 from rhandir.infrastructure.db.postgres_repository import PostgresIngestionRepository
 from rhandir.infrastructure.external.takeout_parser import TakeoutCollector
 from rhandir.infrastructure.external.telegram_listener import TelegramListener
+from rhandir.infrastructure.external.youtube_metadata import YouTubeMetadataProvider
 from rhandir.infrastructure.external.youtube_transcript import YouTubeTranscriptProvider
 from rhandir.infrastructure.filesystem.vault_writer import VaultWriter
 from rhandir.interfaces.controllers.daemon import DaemonController
@@ -72,10 +73,12 @@ def build_container(settings: Settings, pool: object) -> AppContainer:
 
     message_listener: IMessageListener | None = None
     if settings.telegram_bot_token:
+        metadata_provider = YouTubeMetadataProvider()
         message_listener = TelegramListener(
             token=settings.telegram_bot_token,
             video_use_case=video_use_case,
             repository=repository,
+            metadata_provider=metadata_provider,
             allowed_chat_ids=settings.telegram_allowed_chat_ids,
         )
 
