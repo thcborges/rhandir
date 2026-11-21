@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import subprocess
+from pathlib import Path
 from typing import NamedTuple
 
 import typer
@@ -141,6 +143,55 @@ def sync_youtube_command(
             await close_db_pool(pool)
 
     asyncio.run(_run())
+
+
+@sync_app.command("vault")
+def sync_vault_command(
+    direction: str = typer.Option(
+        "pull",
+        "--direction",
+        "-d",
+        help="Direção: pull (GDrive -> local), push (local -> GDrive) ou bisync",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Executa em modo de simulação sem modificar arquivos",
+    ),
+) -> None:
+    """Sincroniza a pasta do Obsidian Vault (data/vault) com o Google Drive via rclone."""
+    settings = Settings()
+    vault_base = Path("data/vault")
+    vault_base.mkdir(parents=True, exist_ok=True)
+    remote = settings.rclone_vault_remote
+
+    typer.secho(
+        f"Iniciando sincronização via rclone ({direction.upper()})...",
+        fg=typer.colors.CYAN,
+    )
+    typer.echo(f"  Local:  {vault_base.resolve()}")
+    typer.echo(f"  Remoto: {remote}")
+
+    cmd = ["rclone"]
+    if direction == "push":
+        cmd.extend(["sync", str(vault_base.resolve()), remote])
+    elif direction == "bisync":
+        cmd.extend(["bisync", str(vault_base.resolve()), remote, "--resync"])
+    else:  # pull default
+        cmd.extend(["sync", remote, str(vault_base.resolve())])
+
+    if dry_run:
+        cmd.append("--dry-run")
+
+    cmd.extend(["--fast-list", "--drive-chunk-size", "32M", "-v"])
+
+    proc = subprocess.run(cmd, check=False)
+    if proc.returncode != 0:
+        err_msg = f"Erro na sincronização do rclone (código {proc.returncode})."
+        typer.secho(err_msg, fg=typer.colors.RED)
+        raise typer.Exit(code=proc.returncode)
+
+    typer.secho("Sincronização do Obsidian Vault concluída com sucesso!", fg=typer.colors.GREEN)
 
 
 @cli.command("run")

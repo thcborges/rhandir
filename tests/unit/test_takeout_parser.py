@@ -104,3 +104,33 @@ async def test_given_inbox_directory_when_collecting_history_then_returns_all_vi
     assert len(videos) == 1
     assert videos[0].video_id.value == "dQw4w9WgXcQ"
     assert videos[0].channel == "Uncle Bob"
+
+
+@pytest.mark.asyncio
+async def test_given_nested_subdirectories_when_collecting_history_then_returns_all_videos(
+    tmp_path: Path,
+) -> None:
+    # Given
+    inbox = tmp_path / "inbox"
+    sub_dir = inbox / "YouTube e YouTube Music" / "histórico"
+    sub_dir.mkdir(parents=True)
+    sample = [
+        {
+            "header": "YouTube",
+            "title": "Watched Clean Architecture",
+            "titleUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "subtitles": [{"name": "Uncle Bob"}],
+            "time": "2026-11-16T12:00:00Z",
+        }
+    ]
+    (sub_dir / "histórico-de-visualização.json").write_text(json.dumps(sample), encoding="utf-8")
+
+    collector = TakeoutCollector(inbox_dir=inbox)
+
+    # When
+    videos = await collector.collect_history()
+
+    # Then
+    assert len(videos) == 1
+    assert videos[0].video_id.value == "dQw4w9WgXcQ"
+    assert videos[0].channel == "Uncle Bob"

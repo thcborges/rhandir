@@ -129,8 +129,8 @@ class TakeoutCollector(IHistoryCollector):
             return []
 
         all_videos: list[Video] = []
-        # Find JSON files
-        for json_file in sorted(self._inbox_dir.glob("*.json")):
+        # Find JSON files (including nested Takeout directory hierarchies)
+        for json_file in sorted(self._inbox_dir.rglob("*.json")):
             videos = self._parser.parse_file(json_file)
             all_videos.extend(videos)
 
