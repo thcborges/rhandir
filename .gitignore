@@ -26,6 +26,7 @@ cookies.txt
 cookies*.txt
 
 # Ingestion local cache / scratch
+data/
 inbox/takeout/
 inbox/cookies/
 logs/
