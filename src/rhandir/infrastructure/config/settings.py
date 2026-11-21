@@ -1,8 +1,9 @@
 """Typed Application Configuration using Pydantic Settings."""
 
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -59,6 +60,28 @@ class Settings(BaseSettings):
         default_factory=list,
         description="Authorized Telegram chat IDs. If empty, all chats are allowed.",
     )
+
+    @field_validator("telegram_allowed_chat_ids", mode="before")
+    @classmethod
+    def parse_allowed_chat_ids(cls, v: Any) -> list[int]:
+        """Support single int, JSON list, or comma-separated string for chat IDs."""
+        if isinstance(v, int):
+            return [v]
+        if isinstance(v, str):
+            v_clean = v.strip()
+            if not v_clean:
+                return []
+            if v_clean.startswith("[") and v_clean.endswith("]"):
+                import json
+
+                try:
+                    parsed = json.loads(v_clean)
+                    return [int(x) for x in parsed]
+                except Exception:
+                    pass
+            return [int(x.strip()) for x in v_clean.split(",") if x.strip()]
+        return v
+
     log_level: str = Field(
         default="INFO",
         description="Structured logging level (DEBUG, INFO, WARNING, ERROR).",
